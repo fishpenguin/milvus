@@ -24,7 +24,7 @@ import (
 	"github.com/milvus-io/milvus/internal/util/typeutil"
 	"github.com/tecbot/gorocksdb"
 
-	memkv "github.com/milvus-io/milvus/internal/kv/mem"
+	rocksdbkv "github.com/milvus-io/milvus/internal/kv/rocksdb"
 )
 
 type UniqueID = typeutil.UniqueID
@@ -96,11 +96,15 @@ func NewRocksMQ(name string, idAllocator allocator.GIDAllocator) (*rocksmq, erro
 		return nil, err
 	}
 
-	mkv := memkv.NewMemoryKV()
+	kvName := name + "_meta_kv"
+	kv, err := rocksdbkv.NewRocksdbKV(kvName)
+	if err != nil {
+		return nil, err
+	}
 
 	rmq := &rocksmq{
 		store:       db,
-		kv:          mkv,
+		kv:          kv,
 		idAllocator: idAllocator,
 		channelMu:   sync.Map{},
 		consumers:   sync.Map{},
@@ -112,7 +116,7 @@ func NewRocksMQ(name string, idAllocator allocator.GIDAllocator) (*rocksmq, erro
 		ackedInfo:         map[string]*topicAckedInfo{},
 		lastRetentionTime: map[string]int64{},
 	}
-	err = rmq.retentionInfo.loadRetentionInfo(mkv, db)
+	err = rmq.retentionInfo.loadRetentionInfo(kv, db)
 	if err != nil {
 		return nil, err
 	}
@@ -154,18 +158,29 @@ func (rmq *rocksmq) CreateTopic(topicName string) error {
 	if err != nil {
 		return err
 	}
+
+	// Initialize acked size to 0 for topic
 	ackedSizeKey := AckedSizeTitle + fixedTopicName
 	err = rmq.kv.Save(ackedSizeKey, "0")
 	if err != nil {
 		return err
 	}
 
+	// Initialize topic begin id to defaultMessageID
 	topicBeginIDKey := TopicBeginIDTitle + topicName
 	err = rmq.kv.Save(topicBeginIDKey, DefaultMessageID)
 	if err != nil {
 		return err
 	}
 
+	// Initialize topic message size to 0
+	msgSizeKey := MessageSizeTitle + topicName
+	err = rmq.kv.Save(msgSizeKey, "0")
+	if err != nil {
+		return err
+	}
+
+	// Initialize last retention timestamp to time_now
 	lastRetentionTsKey := LastRetTsTitle + topicName
 	time_now := time.Now().Unix()
 	err = rmq.kv.Save(lastRetentionTsKey, strconv.FormatInt(time_now, 10))
@@ -584,7 +599,7 @@ func (rmq *rocksmq) UpdateAckedInfo(topicName, groupName string, newID UniqueID)
 		}
 
 		// Update acked info for msg of begin id
-		ackedTsKey := AckedTsTitle + fixedChanName + "/" + groupName
+		ackedTsKey := AckedTsTitle + fixedChanName + "/" + strconv.FormatInt(minBeginID, 10)
 		ts := time.Now().Unix()
 		err = rmq.kv.Save(ackedTsKey, strconv.FormatInt(ts, 10))
 		if err != nil {

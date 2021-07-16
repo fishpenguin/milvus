@@ -16,7 +16,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/milvus-io/milvus/internal/kv"
 	rocksdbkv "github.com/milvus-io/milvus/internal/kv/rocksdb"
 	"github.com/milvus-io/milvus/internal/log"
 	"github.com/tecbot/gorocksdb"
@@ -48,11 +47,11 @@ type retentionInfo struct {
 	// Key is last_retention_time/${topic}
 	lastRetentionTime map[string]int64
 
-	kv kv.BaseKV
+	kv *rocksdbkv.RocksdbKV
 	db *gorocksdb.DB
 }
 
-func (ri *retentionInfo) loadRetentionInfo(kv kv.BaseKV, db *gorocksdb.DB) error {
+func (ri *retentionInfo) loadRetentionInfo(kv *rocksdbkv.RocksdbKV, db *gorocksdb.DB) error {
 	// Get topic from topic begin id
 	beginIDKeys, _, err := kv.LoadWithPrefix(TopicBeginIDTitle)
 	if err != nil {
@@ -194,7 +193,7 @@ func (ri retentionInfo) retention() error {
 				if v+checkTime > time_now {
 					err := ri.expiredCleanUp(k)
 					if err != nil {
-						return err
+						panic(err)
 					}
 				}
 			}
@@ -204,13 +203,9 @@ func (ri retentionInfo) retention() error {
 
 func (ri retentionInfo) expiredCleanUp(topic string) error {
 	log.Debug("In expiredCleanUp")
-	rdbKV, ok := ri.kv.(*rocksdbkv.RocksdbKV)
-	if !ok {
-		return errors.New("BaseKV can't cast to RocksdbKV")
-	}
 	ackedInfo := ri.ackedInfo[topic]
 
-	iter := rdbKV.DB.NewIterator(rdbKV.ReadOptions)
+	iter := ri.kv.DB.NewIterator(ri.kv.ReadOptions)
 	defer iter.Close()
 	fixedTopic, err := fixChannelName(topic)
 	if err != nil {
@@ -218,10 +213,10 @@ func (ri retentionInfo) expiredCleanUp(topic string) error {
 	}
 	ackedTsPrefix := AckedTsTitle + fixedTopic
 
-	rdbKV.ReadOptions.SetPrefixSameAsStart(true)
-	rdbKV.DB.Close()
-	rdbKV.Opts.SetPrefixExtractor(gorocksdb.NewFixedPrefixTransform(len(ackedTsPrefix)))
-	tmpDb, err := gorocksdb.OpenDb(rdbKV.Opts, rdbKV.GetName())
+	ri.kv.ReadOptions.SetPrefixSameAsStart(true)
+	ri.kv.DB.Close()
+	ri.kv.Opts.SetPrefixExtractor(gorocksdb.NewFixedPrefixTransform(len(ackedTsPrefix)))
+	tmpDb, err := gorocksdb.OpenDb(ri.kv.Opts, ri.kv.GetName())
 	if err != nil {
 		return err
 	}
@@ -288,6 +283,8 @@ func (ri retentionInfo) expiredCleanUp(topic string) error {
 	if err != nil {
 		return err
 	}
+
+	log.Debug("Delete finish!")
 
 	return DeleteMessages(ri.db, topic, startID, endID)
 }

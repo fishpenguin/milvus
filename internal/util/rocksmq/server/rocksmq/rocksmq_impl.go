@@ -89,7 +89,7 @@ func constructKey(metaName, topic string) (string, error) {
 	for i := 0; i < len(nameBytes); i++ {
 		nameBytes[i] = byte('*')
 	}
-	return metaName + "/" + topic + string(nameBytes), nil
+	return metaName + topic + string(nameBytes), nil
 }
 
 var topicMu sync.Map = sync.Map{}
@@ -175,13 +175,8 @@ func (rmq *rocksmq) CreateTopic(topicName string) error {
 	}
 
 	// Initialize retention infos
-	fixedTopicName, err := fixChannelName(topicName)
-	if err != nil {
-		return err
-	}
-
 	// Initialize acked size to 0 for topic
-	ackedSizeKey := AckedSizeTitle + fixedTopicName
+	ackedSizeKey := AckedSizeTitle + topicName
 	err = rmq.kv.Save(ackedSizeKey, "0")
 	if err != nil {
 		return err
@@ -208,8 +203,9 @@ func (rmq *rocksmq) CreateTopic(topicName string) error {
 	if err != nil {
 		return nil
 	}
+	rmq.retentionInfo.topics = append(rmq.retentionInfo.topics, topicName)
+	rmq.retentionInfo.pageInfo[topicName] = &topicPageInfo{}
 	rmq.retentionInfo.lastRetentionTime[topicName] = timeNow
-
 	return nil
 }
 
@@ -231,17 +227,16 @@ func (rmq *rocksmq) DestroyTopic(topicName string) error {
 	}
 
 	rmq.consumers.Delete(topicName)
-	log.Debug("DestroyTopic: " + topicName)
-	fixedTopicName, err := fixChannelName(topicName)
-	if err != nil {
-		return err
-	}
-	ackedSizeKey := AckedSizeTitle + fixedTopicName
+
+	ackedSizeKey := AckedSizeTitle + topicName
 	err = rmq.kv.Remove(ackedSizeKey)
 	if err != nil {
 		return err
 	}
 	topicMu.Delete(topicName)
+	delete(rmq.retentionInfo.ackedInfo, topicName)
+	delete(rmq.retentionInfo.lastRetentionTime, topicName)
+	delete(rmq.retentionInfo.pageInfo, topicName)
 
 	return nil
 }
@@ -311,8 +306,6 @@ func (rmq *rocksmq) DestroyConsumerGroup(topicName, groupName string) error {
 			}
 		}
 	}
-
-	log.Debug("DestroyConsumerGroup: " + topicName + "+" + groupName)
 
 	return nil
 }
@@ -426,12 +419,15 @@ func (rmq *rocksmq) UpdatePageInfo(topicName string, msgSizes map[UniqueID]int64
 			// Current page is full
 			newPageSize := curMsgSize + v
 			pageEndID := k
-			// Update page message size for current page
+			// Update page message size for current page. key is page end ID
 			pageMsgSizeKey := fixedPageSizeKey + "/" + strconv.FormatInt(pageEndID, 10)
 			err := rmq.kv.Save(pageMsgSizeKey, strconv.FormatInt(newPageSize, 10))
 			if err != nil {
 				return err
 			}
+			rmq.retentionInfo.pageInfo[topicName].pageEndID = append(rmq.retentionInfo.pageInfo[topicName].pageEndID, pageEndID)
+			rmq.retentionInfo.pageInfo[topicName].pageMsgSize[pageEndID] = newPageSize
+
 			// Update message size to 0
 			err = rmq.kv.Save(msgSizeKey, strconv.FormatInt(0, 10))
 			if err != nil {
@@ -622,7 +618,7 @@ func (rmq *rocksmq) UpdateAckedInfo(topicName, groupName string, newID UniqueID)
 		}
 
 		// Update acked info for msg of begin id
-		fixedAckedTsKey, err := constructKey(AckedSizeTitle, topicName)
+		fixedAckedTsKey, err := constructKey(AckedTsTitle, topicName)
 		if err != nil {
 			return err
 		}

@@ -24,8 +24,8 @@ import (
 	"go.uber.org/zap"
 )
 
-var RocksmqRetentionTimeInMinutes int64 = 1
-var RocksmqRetentionSizeInMB int64 = 1024
+var RocksmqRetentionTimeInMinutes int64
+var RocksmqRetentionSizeInMB int64
 var TickerTimeInMinutes int64 = 1
 
 type topicPageInfo struct {
@@ -207,8 +207,7 @@ func (ri retentionInfo) retention() error {
 			break
 		case t := <-ticker.C:
 			timeNow := t.Unix()
-			// checkTime := RocksmqRetentionTimeInMinutes * 60 / 10
-			checkTime := int64(6)
+			checkTime := RocksmqRetentionTimeInMinutes * 60 / 10
 			log.Debug("In ticker: ", zap.Any("ticker", timeNow))
 			for k, v := range ri.lastRetentionTime {
 				if v+checkTime < timeNow {

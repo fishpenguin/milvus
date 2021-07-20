@@ -27,8 +27,7 @@ var Params paramtable.BaseTable
 
 func TestMain(m *testing.M) {
 	Params.Init()
-	rocksdbName := "/tmp/rocksdb_mqclient"
-	_ = rocksmq1.InitRocksMQ(rocksdbName)
+	_ = rocksmq1.InitRocksMQ()
 	exitCode := m.Run()
 	defer rocksmq1.CloseRocksMQ()
 	os.Exit(exitCode)

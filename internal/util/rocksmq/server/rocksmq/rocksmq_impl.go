@@ -12,6 +12,7 @@
 package rocksmq
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -134,13 +135,17 @@ func NewRocksMQ(name string, idAllocator allocator.GIDAllocator) (*rocksmq, erro
 		ackedInfo:         sync.Map{},
 		lastRetentionTime: sync.Map{},
 	}
-	err = rmq.retentionInfo.loadRetentionInfo(kv, db)
+	err = rmq.retentionInfo.loadRetentionInfo(context.Background(), kv, db)
 	if err != nil {
 		return nil, err
 	}
 
 	go rmq.retentionInfo.retention()
 	return rmq, nil
+}
+
+func (rmq *rocksmq) closeRetention() {
+	rmq.retentionInfo.ctx.Done()
 }
 
 func (rmq *rocksmq) checkKeyExist(key string) bool {
@@ -531,7 +536,8 @@ func (rmq *rocksmq) Consume(topicName string, groupName string, n int) ([]Consum
 		return nil, err
 	}
 
-	err = rmq.UpdateAckedInfo(topicName, groupName, newID)
+	msgSize := len(consumerMessage[len(consumerMessage)-1].Payload)
+	err = rmq.UpdateAckedInfo(topicName, groupName, newID, int64(msgSize))
 	if err != nil {
 		log.Debug("RocksMQ: Failed to update begin id")
 		return nil, err
@@ -586,7 +592,7 @@ func (rmq *rocksmq) Notify(topicName, groupName string) {
 	}
 }
 
-func (rmq *rocksmq) UpdateAckedInfo(topicName, groupName string, newID UniqueID) error {
+func (rmq *rocksmq) UpdateAckedInfo(topicName, groupName string, newID UniqueID, msgSize int64) error {
 	fixedBeginIDKey, err := constructKey(BeginIDTitle, topicName)
 	if err != nil {
 		return err
@@ -631,6 +637,27 @@ func (rmq *rocksmq) UpdateAckedInfo(topicName, groupName string, newID UniqueID)
 		err = rmq.kv.Save(ackedTsKey, strconv.FormatInt(ts, 10))
 		if err != nil {
 			return err
+		}
+		if minBeginID == newID {
+			// Means the begin_id of topic update to newID, so needs to update acked size
+			ackedSizeKey := AckedSizeTitle + topicName
+			ackedSizeVal, err := rmq.kv.Load(ackedSizeKey)
+			if err != nil {
+				return err
+			}
+			ackedSize, err := strconv.ParseInt(ackedSizeVal, 10, 64)
+			if err != nil {
+				return err
+			}
+			ackedSize += msgSize
+			err = rmq.kv.Save(ackedSizeKey, strconv.FormatInt(ackedSize, 10))
+			if err != nil {
+				return err
+			}
+			if info, ok := rmq.retentionInfo.ackedInfo.Load(topicName); ok {
+				ackedInfo := info.(*topicAckedInfo)
+				ackedInfo.ackedSize = ackedSize
+			}
 		}
 	}
 	return nil

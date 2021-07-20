@@ -12,6 +12,7 @@
 package rocksmq
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strconv"
@@ -30,7 +31,7 @@ var TickerTimeInMinutes int64 = 1
 
 type topicPageInfo struct {
 	pageEndID   []UniqueID
-	pageMsgSize map[int64]UniqueID
+	pageMsgSize map[UniqueID]int64
 }
 
 type topicAckedInfo struct {
@@ -42,6 +43,7 @@ type topicAckedInfo struct {
 }
 
 type retentionInfo struct {
+	ctx    context.Context
 	topics []string
 	// pageInfo  map[string]*topicPageInfo
 	pageInfo sync.Map
@@ -55,8 +57,9 @@ type retentionInfo struct {
 	db *gorocksdb.DB
 }
 
-func (ri *retentionInfo) loadRetentionInfo(kv *rocksdbkv.RocksdbKV, db *gorocksdb.DB) error {
+func (ri *retentionInfo) loadRetentionInfo(ctx context.Context, kv *rocksdbkv.RocksdbKV, db *gorocksdb.DB) error {
 	// Get topic from topic begin id
+	ri.ctx = ctx
 	beginIDKeys, _, err := kv.LoadWithPrefix(TopicBeginIDTitle)
 	if err != nil {
 		return err
@@ -201,12 +204,11 @@ func (ri *retentionInfo) loadRetentionInfo(kv *rocksdbkv.RocksdbKV, db *gorocksd
 func (ri *retentionInfo) retention() error {
 	log.Debug("Rockdmq retention goroutine start!")
 	ticker := time.NewTicker(time.Duration(TickerTimeInMinutes * int64(time.Minute) / 10))
-	done := make(chan bool)
 
 	for {
 		select {
-		case <-done:
-			break
+		case <-ri.ctx.Done():
+			return nil
 		case t := <-ticker.C:
 			timeNow := t.Unix()
 			checkTime := RocksmqRetentionTimeInMinutes * 60 / 10
@@ -269,9 +271,14 @@ func (ri *retentionInfo) expiredCleanUp(topic string) error {
 	if err != nil {
 		return err
 	}
+
+	var deletedAckedSize int64 = 0
 	pageRetentionOffset := 0
+	var pageInfo *topicPageInfo
 	if info, ok := ri.pageInfo.Load(topic); ok {
-		pageInfo := info.(*topicPageInfo)
+		pageInfo = info.(*topicPageInfo)
+	}
+	if pageInfo != nil {
 		for i, pageEndID := range pageInfo.pageEndID {
 			// Clean by RocksmqRetentionTimeInMinutes
 			if msgExpiredCheck(ackedInfo.ackedTs[pageEndID]) {
@@ -284,6 +291,8 @@ func (ri *retentionInfo) expiredCleanUp(topic string) error {
 				newKey := fixedAckedTsKey + "/" + strconv.Itoa(int(pageEndID))
 				iter.Seek([]byte(newKey))
 				pageRetentionOffset = i + 1
+
+				deletedAckedSize += pageInfo.pageMsgSize[pageEndID]
 			}
 		}
 	}
@@ -310,8 +319,7 @@ func (ri *retentionInfo) expiredCleanUp(topic string) error {
 	}
 
 	// Delete page message size in rocksdb_kv
-	if info, ok := ri.pageInfo.Load(topic); ok {
-		pageInfo := info.(*topicPageInfo)
+	if pageInfo != nil {
 		if pageEndID > 0 && len(pageInfo.pageEndID) > 0 {
 			pageStartID := pageInfo.pageEndID[0]
 			fixedPageSizeKey, err := constructKey(PageMsgSizeTitle, topic)
@@ -348,6 +356,14 @@ func (ri *retentionInfo) expiredCleanUp(topic string) error {
 	err = ri.kv.Save(lastRetentionTsKey, strconv.FormatInt(time.Now().Unix(), 10))
 	if err != nil {
 		return err
+	}
+	if ackedInfo != nil {
+		ackedInfo.ackedSize -= deletedAckedSize
+		ackedSizeKey := AckedSizeTitle + topic
+		err := ri.kv.Save(ackedSizeKey, strconv.FormatInt(ackedInfo.ackedSize, 10))
+		if err != nil {
+			return err
+		}
 	}
 
 	return DeleteMessages(ri.db, topic, startID, endID)

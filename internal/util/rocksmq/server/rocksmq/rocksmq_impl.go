@@ -130,10 +130,9 @@ func NewRocksMQ(name string, idAllocator allocator.GIDAllocator) (*rocksmq, erro
 	}
 	rmq.retentionInfo = &retentionInfo{
 		topics:            make([]string, 0),
-		consumers:         make([]*Consumer, 0),
-		pageInfo:          map[string]*topicPageInfo{},
-		ackedInfo:         map[string]*topicAckedInfo{},
-		lastRetentionTime: map[string]int64{},
+		pageInfo:          sync.Map{},
+		ackedInfo:         sync.Map{},
+		lastRetentionTime: sync.Map{},
 	}
 	err = rmq.retentionInfo.loadRetentionInfo(kv, db)
 	if err != nil {
@@ -204,8 +203,10 @@ func (rmq *rocksmq) CreateTopic(topicName string) error {
 		return nil
 	}
 	rmq.retentionInfo.topics = append(rmq.retentionInfo.topics, topicName)
-	rmq.retentionInfo.pageInfo[topicName] = &topicPageInfo{}
-	rmq.retentionInfo.lastRetentionTime[topicName] = timeNow
+	rmq.retentionInfo.pageInfo.Store(topicName, &topicPageInfo{})
+	rmq.retentionInfo.lastRetentionTime.Store(topicName, timeNow)
+	// rmq.retentionInfo.pageInfo[topicName] = &topicPageInfo{}
+	// rmq.retentionInfo.lastRetentionTime[topicName] = timeNow
 	return nil
 }
 
@@ -234,9 +235,9 @@ func (rmq *rocksmq) DestroyTopic(topicName string) error {
 		return err
 	}
 	topicMu.Delete(topicName)
-	delete(rmq.retentionInfo.ackedInfo, topicName)
-	delete(rmq.retentionInfo.lastRetentionTime, topicName)
-	delete(rmq.retentionInfo.pageInfo, topicName)
+	rmq.retentionInfo.ackedInfo.Delete(topicName)
+	rmq.retentionInfo.lastRetentionTime.Delete(topicName)
+	rmq.retentionInfo.pageInfo.Delete(topicName)
 
 	return nil
 }
@@ -425,8 +426,11 @@ func (rmq *rocksmq) UpdatePageInfo(topicName string, msgSizes map[UniqueID]int64
 			if err != nil {
 				return err
 			}
-			rmq.retentionInfo.pageInfo[topicName].pageEndID = append(rmq.retentionInfo.pageInfo[topicName].pageEndID, pageEndID)
-			rmq.retentionInfo.pageInfo[topicName].pageMsgSize[pageEndID] = newPageSize
+
+			if pageInfo, ok := rmq.retentionInfo.pageInfo.Load(topicName); ok {
+				pageInfo.(*topicPageInfo).pageEndID = append(pageInfo.(*topicPageInfo).pageEndID, pageEndID)
+				pageInfo.(*topicPageInfo).pageMsgSize[pageEndID] = newPageSize
+			}
 
 			// Update message size to 0
 			err = rmq.kv.Save(msgSizeKey, strconv.FormatInt(0, 10))

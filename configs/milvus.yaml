@@ -36,8 +36,8 @@ pulsar:
 
 rocksmq:
   path: /var/lib/milvus/rdb_data
-  retentionTimeInMinutes: 100
-  retentionSizeInMB: 1024
+  retentionTimeInMinutes: 10080
+  retentionSizeInMB: 0
 
 rootCoord:
   address: localhost

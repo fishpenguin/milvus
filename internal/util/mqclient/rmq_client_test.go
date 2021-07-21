@@ -27,6 +27,7 @@ var Params paramtable.BaseTable
 
 func TestMain(m *testing.M) {
 	Params.Init()
+	os.Setenv("ROCKSMQ_PATH", "/tmp/milvus/rdb_data")
 	_ = rocksmq1.InitRocksMQ()
 	exitCode := m.Run()
 	defer rocksmq1.CloseRocksMQ()

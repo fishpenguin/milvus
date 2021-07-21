@@ -74,7 +74,11 @@ func InitRocksMQ() error {
 }
 
 func CloseRocksMQ() {
-	if Rmq != nil && Rmq.store != nil {
-		Rmq.store.Close()
+	log.Debug("Close Rocksmq!")
+	if Rmq != nil {
+		Rmq.stopRetention()
+		if Rmq.store != nil {
+			Rmq.store.Close()
+		}
 	}
 }

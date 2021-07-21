@@ -97,7 +97,7 @@ func TestRocksMQ(t *testing.T) {
 	assert.Equal(t, len(cMsgs), 2)
 	assert.Equal(t, string(cMsgs[0].Payload), "b_message")
 	assert.Equal(t, string(cMsgs[1].Payload), "c_message")
-	rmq.closeRetention()
+	rmq.stopRetention()
 }
 
 func TestRocksMQ_Loop(t *testing.T) {
@@ -165,7 +165,7 @@ func TestRocksMQ_Loop(t *testing.T) {
 	cMsgs, err = rmq.Consume(channelName, groupName, 1)
 	assert.Nil(t, err)
 	assert.Equal(t, len(cMsgs), 0)
-	rmq.closeRetention()
+	rmq.stopRetention()
 }
 
 func TestRocksMQ_Goroutines(t *testing.T) {
@@ -226,7 +226,7 @@ func TestRocksMQ_Goroutines(t *testing.T) {
 		}(&wg, rmq)
 	}
 	wg.Wait()
-	rmq.closeRetention()
+	rmq.stopRetention()
 }
 
 /**
@@ -290,7 +290,7 @@ func TestRocksMQ_Throughout(t *testing.T) {
 	ct1 := time.Now().UnixNano() / int64(time.Millisecond)
 	cDuration := ct1 - ct0
 	log.Printf("Total consume %d item, cost %v ms, throughout %v / s", entityNum, cDuration, int64(entityNum)*1000/cDuration)
-	rmq.closeRetention()
+	rmq.stopRetention()
 }
 
 func TestRocksMQ_MultiChan(t *testing.T) {
@@ -339,5 +339,5 @@ func TestRocksMQ_MultiChan(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, len(cMsgs), 1)
 	assert.Equal(t, string(cMsgs[0].Payload), "for_chann1_"+strconv.Itoa(0))
-	rmq.closeRetention()
+	rmq.stopRetention()
 }

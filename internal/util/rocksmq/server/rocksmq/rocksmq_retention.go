@@ -267,6 +267,7 @@ func (ri *retentionInfo) expiredCleanUp(topic string) error {
 	}
 	var startID UniqueID
 	var endID UniqueID
+	endID = 0
 	startID, err = strconv.ParseInt(string(iter.Key().Data())[FixedChannelNameLen+1:], 10, 64)
 	if err != nil {
 		return err

@@ -144,7 +144,7 @@ func NewRocksMQ(name string, idAllocator allocator.GIDAllocator) (*rocksmq, erro
 	return rmq, nil
 }
 
-func (rmq *rocksmq) closeRetention() {
+func (rmq *rocksmq) stopRetention() {
 	rmq.retentionInfo.ctx.Done()
 }
 
@@ -525,7 +525,7 @@ func (rmq *rocksmq) Consume(topicName string, groupName string, n int) ([]Consum
 
 	// When already consume to last mes, an empty slice will be returned
 	if len(consumerMessage) == 0 {
-		//log.Debug("RocksMQ: consumerMessage is empty")
+		log.Debug("RocksMQ: consumerMessage is empty")
 		return consumerMessage, nil
 	}
 

@@ -57,10 +57,9 @@ type retentionInfo struct {
 	db *gorocksdb.DB
 }
 
-func (ri *retentionInfo) loadRetentionInfo(ctx context.Context, kv *rocksdbkv.RocksdbKV, db *gorocksdb.DB) error {
+func (ri *retentionInfo) loadRetentionInfo() error {
 	// Get topic from topic begin id
-	ri.ctx = ctx
-	beginIDKeys, _, err := kv.LoadWithPrefix(TopicBeginIDTitle)
+	beginIDKeys, _, err := ri.kv.LoadWithPrefix(TopicBeginIDTitle)
 	if err != nil {
 		return err
 	}
@@ -69,9 +68,6 @@ func (ri *retentionInfo) loadRetentionInfo(ctx context.Context, kv *rocksdbkv.Ro
 		ri.topics = append(ri.topics, topic)
 		topicMu.Store(topic, new(sync.Mutex))
 	}
-	ri.pageInfo = sync.Map{}
-	ri.ackedInfo = sync.Map{}
-	ri.lastRetentionTime = sync.Map{}
 
 	for _, topic := range ri.topics {
 		// Load all page infos
@@ -83,7 +79,7 @@ func (ri *retentionInfo) loadRetentionInfo(ctx context.Context, kv *rocksdbkv.Ro
 			return err
 		}
 		pageMsgSizePrefix := fixedPageSizeKey + "/"
-		pageMsgSizeKeys, pageMsgSizeVals, err := kv.LoadWithPrefix(pageMsgSizePrefix)
+		pageMsgSizeKeys, pageMsgSizeVals, err := ri.kv.LoadWithPrefix(pageMsgSizePrefix)
 		if err != nil {
 			return err
 		}
@@ -109,7 +105,7 @@ func (ri *retentionInfo) loadRetentionInfo(ctx context.Context, kv *rocksdbkv.Ro
 		ackedTs := make(map[UniqueID]UniqueID)
 
 		topicBeginIDKey := TopicBeginIDTitle + topic
-		topicBeginIDVal, err := kv.Load(topicBeginIDKey)
+		topicBeginIDVal, err := ri.kv.Load(topicBeginIDKey)
 		if err != nil {
 			return err
 		}
@@ -123,7 +119,7 @@ func (ri *retentionInfo) loadRetentionInfo(ctx context.Context, kv *rocksdbkv.Ro
 		if err != nil {
 			return err
 		}
-		beginIDKeys, beginIDVals, err := kv.LoadWithPrefix(beginIDPrefix)
+		beginIDKeys, beginIDVals, err := ri.kv.LoadWithPrefix(beginIDPrefix)
 		if err != nil {
 			return nil
 		}
@@ -140,7 +136,7 @@ func (ri *retentionInfo) loadRetentionInfo(ctx context.Context, kv *rocksdbkv.Ro
 		if err != nil {
 			return err
 		}
-		keys, vals, err := kv.LoadWithPrefix(ackedTsPrefix)
+		keys, vals, err := ri.kv.LoadWithPrefix(ackedTsPrefix)
 		if err != nil {
 			return err
 		}
@@ -164,7 +160,7 @@ func (ri *retentionInfo) loadRetentionInfo(ctx context.Context, kv *rocksdbkv.Ro
 		}
 
 		ackedSizeKey := AckedSizeTitle + topic
-		ackedSizeVal, err := kv.Load(ackedSizeKey)
+		ackedSizeVal, err := ri.kv.Load(ackedSizeKey)
 		if err != nil {
 			return err
 		}
@@ -182,7 +178,7 @@ func (ri *retentionInfo) loadRetentionInfo(ctx context.Context, kv *rocksdbkv.Ro
 
 		//Load last retention timestamp
 		lastRetentionTsKey := LastRetTsTitle + topic
-		lastRetentionTsVal, err := kv.Load(lastRetentionTsKey)
+		lastRetentionTsVal, err := ri.kv.Load(lastRetentionTsKey)
 		if err != nil {
 			return err
 		}
@@ -195,8 +191,6 @@ func (ri *retentionInfo) loadRetentionInfo(ctx context.Context, kv *rocksdbkv.Ro
 		ri.pageInfo.Store(topic, topicPageInfo)
 		ri.lastRetentionTime.Store(topic, lastRetentionTs)
 	}
-	ri.kv = kv
-	ri.db = db
 
 	return nil
 }

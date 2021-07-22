@@ -36,6 +36,8 @@ const (
 	RocksDBLRUCacheCapacity = 3 << 30
 	RocksmqPageSize         = 2 << 30
 
+	kvSuffix = "_meta_kv"
+
 	MessageSizeTitle  = "message_size/"
 	PageMsgSizeTitle  = "page_message_size/"
 	TopicBeginIDTitle = "topic_begin_id/"
@@ -117,7 +119,7 @@ func NewRocksMQ(name string, idAllocator allocator.GIDAllocator) (*rocksmq, erro
 		return nil, err
 	}
 
-	kvName := name + "_meta_kv"
+	kvName := name + kvSuffix
 	kv, err := rocksdbkv.NewRocksdbKV(kvName)
 	if err != nil {
 		return nil, err
@@ -130,12 +132,15 @@ func NewRocksMQ(name string, idAllocator allocator.GIDAllocator) (*rocksmq, erro
 		consumers:   sync.Map{},
 	}
 	rmq.retentionInfo = &retentionInfo{
+		ctx:               context.Background(),
 		topics:            make([]string, 0),
 		pageInfo:          sync.Map{},
 		ackedInfo:         sync.Map{},
 		lastRetentionTime: sync.Map{},
+		kv:                kv,
+		db:                db,
 	}
-	err = rmq.retentionInfo.loadRetentionInfo(context.Background(), kv, db)
+	err = rmq.retentionInfo.loadRetentionInfo()
 	if err != nil {
 		return nil, err
 	}

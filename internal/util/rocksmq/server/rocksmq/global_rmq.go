@@ -38,12 +38,6 @@ func InitRocksMQ() error {
 	once.Do(func() {
 		params.Init()
 		rocksdbName, _ := params.Load("_RocksmqPath")
-		if rocksdbName == "" {
-			rocksdbName, err = params.Load("rocksmq.path")
-			if err != nil {
-				panic(err)
-			}
-		}
 		log.Debug("RocksmqPath=" + rocksdbName)
 		_, err = os.Stat(rocksdbName)
 		if os.IsNotExist(err) {

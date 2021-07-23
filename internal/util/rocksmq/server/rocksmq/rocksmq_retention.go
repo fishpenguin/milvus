@@ -291,6 +291,7 @@ func (ri *retentionInfo) expiredCleanUp(topic string) error {
 			}
 		}
 	}
+	log.Debug("In expiredCleanUp: ", zap.Any("topic", topic), zap.Any("endID", endID), zap.Any("deletedAckedSize", deletedAckedSize))
 
 	pageEndID := endID
 	// The end msg of the page is not expired, find the last expired msg in this page
@@ -331,6 +332,7 @@ func (ri *retentionInfo) expiredCleanUp(topic string) error {
 			pageInfo.pageEndID = pageInfo.pageEndID[pageRetentionOffset:]
 		}
 	}
+	ri.pageInfo.Store(topic, pageInfo)
 
 	// Delete acked_ts in rocksdb_kv
 	fixedAckedTsTitle, err := constructKey(AckedTsTitle, topic)
